@@ -145,3 +145,50 @@
     (ok true)
   )
 )
+;; Set verification requirements for a service/application (only contract owner)
+(define-public (set-verification-requirements 
+                 (service-id (string-ascii 50)) 
+                 (required-trust-level uint) 
+                 (required-providers (list 10 (string-ascii 50)))
+                 (kyc-required bool)
+                 (aml-required bool))
+  (begin
+    (asserts! (is-eq tx-sender (var-get contract-owner)) ERR-NOT-AUTHORIZED)
+    (asserts! (and (>= required-trust-level TRUST-LEVEL-1) (<= required-trust-level TRUST-LEVEL-5)) ERR-INVALID-TRUST-LEVEL)
+    
+    (map-set verification-requirements
+      { service-id: service-id }
+      {
+        required-trust-level: required-trust-level,
+        required-providers: required-providers,
+        kyc-required: kyc-required,
+        aml-required: aml-required
+      }
+    )
+    (ok true)
+  )
+)
+
+;; Check if a user meets verification requirements for a service
+(define-public (check-verification (user principal) (service-id (string-ascii 50)))
+  (let
+    (
+      (user-identity (unwrap! (map-get? user-identities { user: user }) ERR-NOT-REGISTERED))
+      (requirements (unwrap! (map-get? verification-requirements { service-id: service-id }) (err u106)))
+      (current-block-height block-height)
+    )
+    
+    ;; Check verification status
+    (asserts! (get verification-status user-identity) (err u107))
+    
+    ;; Check if verification is expired
+    (asserts! (<= current-block-height (get expiration-timestamp user-identity)) ERR-EXPIRED-VERIFICATION)
+    
+    ;; Check if user meets trust level
+    (asserts! (>= (get trust-level user-identity) (get required-trust-level requirements)) (err u108))
+    
+    ;; Check if provider is in the required list (if non-empty)
+    (if (> (len (get required-providers requirements)) u0)
+        (asserts! (is-some (index-of (get required-providers requirements) (get provider-id user-identity))) (err u109))
+        true
+    )
