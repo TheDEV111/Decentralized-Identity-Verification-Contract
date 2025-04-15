@@ -192,3 +192,56 @@
         (asserts! (is-some (index-of (get required-providers requirements) (get provider-id user-identity))) (err u109))
         true
     )
+        
+    (ok true)
+  )
+)
+
+;; Read-only functions
+
+;; Get user verification status
+(define-read-only (get-user-verification-status (user principal))
+  (let ((user-identity (map-get? user-identities { user: user })))
+    (if (is-some user-identity)
+        (let ((identity (unwrap-panic user-identity)))
+          (if (and 
+                (get verification-status identity)
+                (<= block-height (get expiration-timestamp identity))
+              )
+              (ok {
+                verified: true,
+                trust-level: (get trust-level identity),
+                provider: (get provider-id identity),
+                expiration: (get expiration-timestamp identity)
+              })
+              (ok {
+                verified: false,
+                trust-level: u0,
+                provider: "",
+                expiration: u0
+              })
+          )
+        )
+        (err ERR-NOT-REGISTERED)
+    )
+  )
+)
+
+;; Get service requirements
+(define-read-only (get-service-requirements (service-id (string-ascii 50)))
+  (ok (map-get? verification-requirements { service-id: service-id }))
+)
+
+;; Get provider information
+(define-read-only (get-provider-info (provider-id (string-ascii 50)))
+  (ok (map-get? identity-providers { provider-id: provider-id }))
+)
+
+;; Transfer contract ownership (only current owner)
+(define-public (transfer-ownership (new-owner principal))
+  (begin
+    (asserts! (is-eq tx-sender (var-get contract-owner)) ERR-NOT-AUTHORIZED)
+    (var-set contract-owner new-owner)
+    (ok true)
+  )
+)
