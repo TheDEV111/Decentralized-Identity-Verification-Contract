@@ -76,3 +76,72 @@
     (ok true)
   )
 )
+
+;; Add a new identity provider (only contract owner)
+(define-public (add-provider (provider-id (string-ascii 50)) (name (string-ascii 50)) (trust-score uint))
+  (begin
+    (asserts! (is-eq tx-sender (var-get contract-owner)) ERR-NOT-AUTHORIZED)
+    (asserts! (and (>= trust-score TRUST-LEVEL-1) (<= trust-score TRUST-LEVEL-5)) ERR-INVALID-TRUST-LEVEL)
+    
+    (map-set identity-providers
+      { provider-id: provider-id }
+      {
+        name: name,
+        trust-score: trust-score,
+        active: true
+      }
+    )
+    (ok true)
+  )
+)
+
+;; Update provider status (only contract owner)
+(define-public (update-provider-status (provider-id (string-ascii 50)) (active bool))
+  (begin
+    (asserts! (is-eq tx-sender (var-get contract-owner)) ERR-NOT-AUTHORIZED)
+    (asserts! (is-some (map-get? identity-providers { provider-id: provider-id })) ERR-INVALID-PROVIDER)
+    
+    (let ((provider (unwrap-panic (map-get? identity-providers { provider-id: provider-id }))))
+      (map-set identity-providers
+        { provider-id: provider-id }
+        {
+          name: (get name provider),
+          trust-score: (get trust-score provider),
+          active: active
+        }
+      )
+    )
+    (ok true)
+  )
+)
+
+;; Verify a user's identity (called by authorized provider)
+;; In a real implementation, provider would be authenticated via multi-sig or other mechanism
+(define-public (verify-user (user principal) (provider-id (string-ascii 50)) (verification-hash (buff 32)) (expiration-blocks uint))
+  (let
+    (
+      (provider (unwrap! (map-get? identity-providers { provider-id: provider-id }) ERR-INVALID-PROVIDER))
+      (user-identity (unwrap! (map-get? user-identities { user: user }) ERR-NOT-REGISTERED))
+      (current-block-height block-height)
+      (expiration-timestamp (+ current-block-height expiration-blocks))
+    )
+    
+    ;; Check provider is active
+    (asserts! (get active provider) ERR-INVALID-PROVIDER)
+    
+    ;; Update user's identity verification
+    (map-set user-identities
+      { user: user }
+      {
+        registered: true,
+        verification-status: true,
+        trust-level: (get trust-score provider),
+        provider-id: provider-id,
+        verification-hash: verification-hash,
+        verification-timestamp: current-block-height,
+        expiration-timestamp: expiration-timestamp
+      }
+    )
+    (ok true)
+  )
+)
